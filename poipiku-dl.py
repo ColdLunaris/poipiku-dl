@@ -1,4 +1,4 @@
-﻿import sys, re, os, time, wget, requests
+﻿import sys, re, os, time, requests
 from termcolor import colored
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
