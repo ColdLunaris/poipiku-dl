@@ -26,7 +26,7 @@ You also need Firefox on the system running the command. Geckodriver only hooks 
 | `URL` **REQUIRED**| The only required argument. Specifies which link to look for images | 
 
 
-For -d and -g, poipiku-dl.py will output to current directory and look for geckodriver in current directory. All arguments in brackets [] are optional.
+For -d and -g, poipiku-dl.py will output to current directory and look for geckodriver in current directory if not specified. All arguments in brackets [] are optional.
 
 `python3 .\poipiku.py [-q] [-d PATH] [-g PATH-TO-GECKODRIVER] 'enter URL here in quotes'`
 
