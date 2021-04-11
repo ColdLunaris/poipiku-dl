@@ -1,5 +1,4 @@
-﻿import sys, re, os, time, requests, argparse
-
+import requests, argparse, sys, os, re, time, selenium
 from termcolor import colored
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
@@ -7,17 +6,14 @@ from pathlib import Path
 from selenium import webdriver
 from selenium.webdriver.firefox.options import Options
 
-
-# Check if defined dir-path exists. If not, throw exception
 def dir_path(string):
     if os.path.isdir(string):
         return string
     else:
         raise Directory(string)
 
-# Create argument-parser. Supported arguments are output-dir, quiet and URL
 def create_arg_parser():
-    parser = argparse.ArgumentParser('python3 poipiku-dl.py', 
+    parser = argparse.ArgumentParser('python3 poipiku-dl.py',
                                      description='a tool to download pictures from Poipiku')
     parser.add_argument('-d', dest='PATH',
                         help='path to directory where pictures will be saved', type=dir_path)
@@ -28,7 +24,6 @@ def create_arg_parser():
     parser.add_argument('URL', help='address to account to be downloaded. Also works with only a set of pictures')
     return parser
 
-# Turn off logging, set driver in headless-mode and specify geckodriver-location if needed
 def setup_webdriver():
     options = Options()
     options.headless = True
@@ -38,25 +33,19 @@ def setup_webdriver():
         driver = webdriver.Firefox(service_log_path=os.path.devnull, options=options, executable_path=parsed_args.geckodriver)
     return driver
 
-# Check for "Show more" buttons. If present, show all images, else ignore
-def javascript_button_clicker():
-    count = 0
-    buttons = driver.execute_script("return document.getElementsByClassName('BtnBase IllustItemExpandBtn')")
-    for button in buttons:
-        driver.execute_script("document.getElementsByClassName('BtnBase IllustItemExpandBtn')[" + str(count) + "].click()")
-        count += 1
-        time.sleep(1)
-    else:
-        pass
+def get_page_links():
+    headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/61.0.3163.100 Safari/537.36'}
+    r = requests.get(parsed_args.URL, headers = headers)
+    soup = BeautifulSoup(r.text, 'html.parser')
 
-# Parse page-source and extract only image-links
+    links = [a['href'] for a in soup.find_all('a', href = re.compile('^/IllustViewPcV.jsp\?'))]
+    return links
+
 def get_image_links():
-    src = driver.page_source
-    soup = BeautifulSoup(src, 'html.parser')
+    soup = BeautifulSoup(driver.page_source, 'html.parser')
     images = soup.find_all('img', {'src':re.compile('.jpg')})
     return images
 
-# Create filenames. Replace redudant info in filename
 def set_filename(url):
     a = urlparse(url)
     filename = os.path.basename(a.path)
@@ -64,49 +53,51 @@ def set_filename(url):
     filename = re.sub(r".png_640.jpg", ".jpg", filename)
     return filename
 
+image_urls = []
 arg_parser = create_arg_parser()
 parsed_args = arg_parser.parse_args(sys.argv[1:])
-
+driver = setup_webdriver()
+page_links = get_page_links()
+os.chdir(parsed_args.PATH)
 cwd = os.getcwd()
 
-# Set firefox to be quiet, load webpage and get all pictures
-driver = setup_webdriver()
-driver.get(parsed_args.URL)
-javascript_button_clicker()
-images = get_image_links()
+for page_link in page_links:
+    page_link = 'https://poipiku.com' + page_link
+    driver.get(page_link)
+    try:
+        driver.find_element_by_css_selector('[class="BtnBase IllustItemExpandBtn"]').click()
+        time.sleep(1)
+    except selenium.common.exceptions.NoSuchElementException:
+        pass
 
-for image in images:
-    # Fix URLs and load image
-    path = image['src']
-    url = re.sub(r"//", "https://", path)
+    images = get_image_links()
 
-    # Ignore warning-pictures
-    if "/warning" in path:
-        continue
 
-    response = requests.get(url)
-    filename = set_filename(url)
-
-    os.chdir(parsed_args.PATH)
-    cwd = os.getcwd()
-    
-    # Save images to working dir/specified dir unless they already exist
-    if os.path.isfile(filename):
-        if parsed_args.q is False:
-            if os.name == 'nt':
-                print(colored(cwd + "\\" + filename, 'green'))
-            else:
-                print(colored(cwd + "/" + filename, 'green'))
-        else:
+    for image in images:
+        path = image['src']
+        url = re.sub(r"//", "https://", path)
+        if "/warning" in path:
             continue
-    else:
-        with open(filename, 'wb') as f:
-                f.write(response.content)
-        if parsed_args.q is False:
-            if os.name == 'nt':
-                print(cwd + "\\" + filename)
+        if url not in image_urls:
+            image_urls.append(url)
+            response = requests.get(url)
+            filename = set_filename(url)
+            if os.path.isfile(filename):
+                if parsed_args.q is False:
+                    if os.name == 'nt':
+                        print(colored(cwd + "\\" + filename, 'green'))
+                    else:
+                        print(colored(cwd + "/" + filename, 'green'))
+                else:
+                    continue
             else:
-                print(cwd + "/" + filename)
-        else:
-            continue
-driver.close()
+                with open(filename, 'wb') as f:
+                        f.write(response.content)
+                if parsed_args.q is False:
+                    if os.name == 'nt':
+                        print(cwd + "\\" + filename)
+                    else:
+                        print(cwd + "/" + filename)
+                else:
+                    continue
+driver.quit()
