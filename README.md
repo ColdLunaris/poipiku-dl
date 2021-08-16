@@ -1,6 +1,7 @@
-# poipiku-dl
-A tool written in Python to download images from poipiku. Under development. Tested on Windows and Linux. Should work on all OS's.
+# poipiku-dl (CURRENTLY NOT WORKING!)
+They changed how they handle cookies for logged in sessions, and the current version of this script does not work properly when not using cookies. Basically, the script isn't working in its current state. I'll try to work it out...
 
+A tool written in Python to download images from poipiku. Under development. Tested on Windows and Linux. Should work on all OS's.
 
 ## Requirements
 Some pip modules are needed for poipiku-dl to work. Some of them are already pre-installed on your system. Copy-paste this command and you should be good here:
