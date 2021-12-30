@@ -219,8 +219,11 @@ if __name__ == "__main__":
         
         # Save background image
         soup = BeautifulSoup(r.text, 'html.parser')
-        background_image = 'https://' + str(soup.find('style')).split("url('//")[1].split("');")[0].split("_640")[0]
-        save_image(s, background_image, path, args.verbose)
+        try:
+            background_image = 'https://' + str(soup.find('style')).split("url('//")[1].split("');")[0].split("_640")[0]
+            save_image(s, background_image, path, args.verbose)
+        except Exception:
+            pass
         
         sites = get_image_pages(s, args.url)
     
