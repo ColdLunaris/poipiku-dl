@@ -25,4 +25,4 @@ Poipiku locks links for full-res images behind a login. You can supply already a
 
 ### Example:
 
-`python3 .\poipiku-dl.py -d '/mnt/tank/poipiku-archive/' -c '/home/lunaris/Desktop/poipiku-cookies.txt' 'https://poipiku.com/ID HERE/'`
+`python3 .\poipiku-dl.py -d '/mnt/tank/poipiku-archive/' -c '/home/lunaris/Desktop/poipiku-cookies.txt' -u 'https://poipiku.com/ID HERE/'`
