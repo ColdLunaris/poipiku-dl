@@ -181,8 +181,13 @@ def create_directory(session, url, directory):
     soup = BeautifulSoup(r.text, 'html.parser')
 
     # It's not me who messed up the classname, it's poipiku...
-    username = soup.find(class_="UserInfoProgile")
-    path = path + str(username).split("@")[1].split("<")[0]
+    try:
+        username = soup.find(class_="UserInfoProgile")
+        path = path + str(username).split("@")[1].split("<")[0]
+    except Exception:
+        username = soup.find(class_="UserInfoUserName")
+        path = path + str(username).split('">')[2].split("</")[0]
+        
     if not os.path.exists(path):
         os.makedirs(path)
 
