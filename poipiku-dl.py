@@ -216,6 +216,12 @@ if __name__ == "__main__":
     with create_session(args.url, args.cookie) as s:
         r = s.get(args.url)
         path = create_directory(s, args.url, args.directory)
+        
+        # Save background image
+        soup = BeautifulSoup(r.text, 'html.parser')
+        background_image = 'https://' + str(soup.find('style')).split("url('//")[1].split("');")[0].split("_640")[0]
+        save_image(s, background_image, path, args.verbose)
+        
         sites = get_image_pages(s, args.url)
     
         for site in sites:
