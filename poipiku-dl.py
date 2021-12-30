@@ -1,161 +1,223 @@
-import requests, argparse, sys, os, re, time, selenium
+# -------------------------------------------------------------------
+# This script can be used to download an entire Poipiku-profile.
+#
+# The user must supply a cookie (or dont i have no idea how the
+# script reacts to that) that is logged in to poipiku with a valid
+# account (currently only tested with a Twitter-account). The cookie
+# has to be a Netscape HTTP Cookie File (exported from Firefox). I 
+# haven't tested with any other types of cookies, ie. from Chrome.
+# The script is slow as all hell, so if anyone wants to improve its
+# speed, feel free to do so.
+# -------------------------------------------------------------------
+
+import requests, json, re, os, argparse
 from termcolor import colored
-from urllib.parse import urlparse
-from pathlib import Path
-from selenium import webdriver
-from selenium.webdriver.firefox.options import Options
+from bs4 import BeautifulSoup
 
-def dir_path(string):
-    if os.path.isdir(string):
-        return string
-    else:
-        raise Directory(string)
+# Static urls used for POSTing payloads to retrieve urls
+url_append_file = "https://poipiku.com/f/ShowAppendFileF.jsp"
+url_illust_detail = "https://poipiku.com/f/ShowIllustDetailF.jsp"
 
-def create_arg_parser():
-    parser = argparse.ArgumentParser('python3 poipiku-dl.py',
-                                     description='A tool to download pictures from Poipiku')
-    parser.add_argument('-d', dest='PATH',
-                        help='Path to directory where pictures will be saved', type=dir_path)
-    parser.add_argument('-g', dest='geckodriver', default=None,
-                        help='Set path to geckodriver executable. If not set, it\'s assumed that executable is in the same directory as script or in PATH')
-    parser.add_argument('-c', dest='cookie', default=None,
-                        help='Use cookie to get high resolution pictures. Limited resolution when not used')
-    parser.add_argument('-q', default=False,
-                        help='Run without output', action='store_true')
-    parser.add_argument('URL', help='Address to account to be downloaded. Also works with only a set of pictures')
-    return parser
+# We don't want to download a bunch of warnings and whatnot. Skipping these
+skips = [
+        '"IllustItemThumbImg" src="/img/publish_pass"',
+        '"IllustItemThumbImg" src="/img/warning"',
+        '"IllustItemThumbImg" src="/img/publish_login"'
+    ]
 
-def setup_webdriver():
-    options = Options()
-    options.headless = True
-    if parsed_args.geckodriver is None:
-        driver = webdriver.Firefox(service_log_path=os.path.devnull, options=options)
-    else:
-        driver = webdriver.Firefox(service_log_path=os.path.devnull, options=options, executable_path=parsed_args.geckodriver)
-    return driver
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-d", dest="directory", required=False,
+                        help="destination where all images will be saved")
+    parser.add_argument("-c", dest="cookie", required=True,
+                        help="path to authenticated cookie-file")
+    parser.add_argument("-u", dest="url", required=True,
+                        help="url for profile to be downloaded")
+    parser.add_argument("-v", dest="verbose", required=False, default=True,
+                        help="specifies verbosity to true or false. Default true")
+    args = parser.parse_args()
 
-def import_cookies(p):
-    cookies = []
-    # Copied this. Thanks StackOverflow
-    with open(p, 'r') as f:
-        for e in f:
-            e = e.strip()
-            if e.startswith('#'):
-                continue
-            k = e.split('\t')
-            # Check for error in cookie. Length less than three means there's something wrong
-            if len(k) < 3:
-                continue
-            cookies.append({'name': k[-2], 'value': k[-1], 'expiry': int(k[-3])})
-    return cookies
+    return args
 
-def get_links():
-    links = []
-    # Will get links depending on what class we're looking for
-    if webpage_mode in (3, 4):
-        l = []
-        if webpage_mode == 3:
-            l = driver.find_elements_by_css_selector('[class="IllustItemImage"]')
-        elif webpage_mode == 4:
-            l = driver.find_elements_by_css_selector('[class="IllustItemThumbImg"]')
+def import_cookie(cookie):
+    from http.cookiejar import MozillaCookieJar
+    cj = MozillaCookieJar(cookie)
+    cj.load(ignore_expires=True, ignore_discard=True)
 
-        for i in l:
-            links.append(i.get_attribute('src'))
-    else:
-        l = []
-        if webpage_mode == 1:
-            l = driver.find_elements_by_css_selector('[class="IllustThumbImg"]')
-        elif webpage_mode == 2:
-            l = driver.find_elements_by_css_selector('[class="IllustItemThumb"]')
+    return cj
 
-        for i in l:
-            links.append(i.get_attribute('href'))
-    return links
+# This is a fucking magic payload... Check get_image_site() for info on why
+def create_post_append_data(uid, iid, pas):
+    payload = {
+        'UID': uid,
+        'IID': iid,
+        'PAS': pas,
+        'MD': '0',
+        'TWF': '-1',
+    }
+    return payload
 
-def write_files(url):
-    # Apply name from URL
-    filename = str(url).rsplit('/', 1)[1]
-    filename = re.sub(r".jpeg_640.jpg", ".jpg", filename)
-    filename = re.sub(r".png_640.jpg", ".jpg", filename)
+def create_post_detail_data(id, td, ad):
+    payload = {
+        'ID': id,
+        'TD': td,
+        'AD': ad,
+    }
+    return payload
 
-    if os.path.isfile(filename):
-        if parsed_args.q is False:
-            if os.name == 'nt':
-                print(colored(cwd + "\\" + filename, 'green'))
-            else:
-                print(colored(cwd + "/" + filename, 'green'))
-    else:
-        # For some reason this thing tries to write twice if cookie is not supplied, and I don't care enough to fix it. It works
-        image = requests.get(str(url))
-        with open(filename, 'wb') as f:
-            f.write(image.content)
-        if parsed_args.q is False:
-            if os.name == 'nt':
-                print(cwd + "\\" + filename)
-            else:
-                print(cwd + "/" + filename)
+# Poipiku expects very specific headers. This one seems to work fine
+def create_session(referer, cookie):
+    s = requests.Session()
+    s.headers = {
+        'Accept': 'application/json, text/javascript, */*; q=0.01',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/81.0.4044.138 Safari/537.36',
+        'X-Requested-With': 'XMLHttpRequest',
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        'Referer': referer,
+        'Origin': 'https://poipiku.com'
+    }
+    s.cookies = import_cookie(cookie)
 
-# webpage_mode decides what class to look for when scraping
-# 1 = Base profile page
-# 2 = Image list page
-# 3 = Full-res image page if valid cookie is supplied
-# 4 = Image page without cookie supplied
-webpage_mode = int(1)
+    return s
 
-# Set some variables and load a bunch of startup-stuff
-setcookie = False
-arg_parser = create_arg_parser()
-parsed_args = arg_parser.parse_args()
-driver = setup_webdriver()
-driver.get(parsed_args.URL)
-page_links = get_links()
-webpage_mode = int(2)
+def get_image_ids(response):
+    raw_json = json.loads(response.text)
+    raw_html = raw_json['html']
 
-os.chdir(parsed_args.PATH)
-cwd = os.getcwd()
+    ids = []
+    for data in re.findall('"(.*?)"', raw_html):
+        if "showIllustDetail" in data:
+            data = data.split(',')[-1]
+            data = data[1:]
+            data = data[:-1]
+            ids.append(data)
 
-for page_link in page_links:
-    driver.get(page_link)
+    return ids
 
-    # Load cookie if supplied
-    if setcookie is False:
-        if parsed_args.cookie is not None:
-            cookies = import_cookies(parsed_args.cookie)
-            for cookie in cookies:
-                driver.add_cookie(cookie)
-            time.sleep(2)
-        setcookie = True
+def get_image_urls(response):
+    raw_json = json.loads(response.text)
+    raw_html = raw_json['html']
+
+    urls = []
+    for url in re.findall('"(.*?)"', raw_html):
+        if "img-org.poipiku.com" in url:
+            url = 'https:' + url
+            urls.append(url)
     
-    # Load all images on image list page
-    try:
-        driver.find_element_by_css_selector('[class="BtnBase IllustItemExpandBtn"]').click()
-        time.sleep(1)
-    except selenium.common.exceptions.NoSuchElementException:
-        pass
-    
-    # Load all image-links and fix array
-    image_links = get_links()
-    not_none_values = filter(None.__ne__, image_links)
-    image_links = list(not_none_values)
+    return urls
 
-    # Decide what classes to look for when getting image-links
-    if parsed_args.cookie is not None:
-        webpage_mode = int(3)
+def save_image(session, url, path, verbose):
+    name = url.rsplit('/', 1)[-1]
+    path = path + '/' + name
+    response = session.get(url, stream=True)
+
+    if response.status_code == 200 and not os.path.exists(path):
+        # Write file in chunks. Slow, but works, so it's whatever...
+        with open(path, 'wb') as f:
+            for chunk in response:
+                f.write(chunk)
+        if verbose is True:
+            print(colored(path, 'white'))
     else:
-        webpage_mode = int(4)
-        # Need to get image-links now before leaving page
-        images = get_links()
+        if verbose is True:
+            print(colored(path, 'green'))
 
-    for image_link in image_links:
-        # Load high-res image if cookie was supplied
-        if webpage_mode == 3:
-            driver.get(str(image_link))
-            images = get_links()
-        for image in images:
-            # Ignore warning-images
-            if "/warning" in str(image):
-                continue
-            else:
-                write_files(str(image))
-    webpage_mode = int(2)
-driver.quit()
+# Cycle through all pages on profile page to get all urls
+def get_image_pages(session, url):
+    reverse_sites = []
+    r = session.get(url)
+
+    soup = BeautifulSoup(r.text, 'html.parser')
+    pages = soup.findAll(class_="BtnBase PageBarItem")
+
+    # Get ready for a clusterfuck... It works though, cycles through every single page on a given profile and retrieves all urls
+    if len(pages) > 2:
+        current_page = 'https://poipiku.com' + str(pages[0]).split('href="')[1].split('"><')[0].replace('amp;', '')
+        next_page = 'https://poipiku.com' + str(pages[-1]).split('href="')[1].split('"><')[0].replace('amp;', '')
+
+        # Get all image pages on all pages on profile (page 1, page 2 etc.)
+        # Unfortunately ignores last page since current_page then equals
+        # next_page, so another lookup is done after loop to get everything
+        while current_page != next_page:
+            response_current = session.get(current_page)
+            soup_current = BeautifulSoup(response_current.text, 'html.parser')
+
+            for site in soup_current.findAll("a", class_="IllustInfo"):
+                url = 'https://poipiku.com' + str(site).split('href="')[1].split('"><')[0]
+                reverse_sites.append(url)
+            
+            response_next = session.get(next_page)
+            soup_next = BeautifulSoup(response_next.text, 'html.parser')
+            current_page = 'https://poipiku.com' + str(soup_next.findAll(class_="BtnBase PageBarItem Selected")[0]).split('href="')[1].split('">')[0].replace('amp;', '')
+            next_page = 'https://poipiku.com' + str(soup_next.findAll(class_="BtnBase PageBarItem")[-1]).split('href="')[1].split('"><')[0].replace('amp;', '')
+        
+        # Need to run one last time to get last page
+        response = session.get(current_page)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        for site in soup.findAll("a", class_="IllustInfo"):
+                url = 'https://poipiku.com' + str(site).split('href="')[1].split('"><')[0]
+                reverse_sites.append(url)
+
+    else:
+        for site in soup.findAll("a", class_="IllustInfo"):
+            url = 'https://poipiku.com' + str(site).split('href="')[1].split('"><')[0]
+            reverse_sites.append(url)
+
+    # I want this script to work like gallery-dl, and it downloads
+    # the oldest images first, so reversing the order of urls to
+    # check so oldest images are downloaded first
+    sites = reverse_sites[::-1]
+
+    return sites
+
+# Create directory based on given argument and username
+def create_directory(session, url, directory):
+    r = session.get(url)
+
+    path = os.getcwd() if directory is None else directory
+    if not path.endswith('/'):
+        path = path + "/"
+
+    soup = BeautifulSoup(r.text, 'html.parser')
+
+    # It's not me who messed up the classname, it's poipiku...
+    username = soup.find(class_="UserInfoProgile")
+    path = path + str(username).split("@")[1].split("<")[0]
+    if not os.path.exists(path):
+        os.makedirs(path)
+
+    # Need full directory for later in main
+    return path
+
+def get_image_site(session, url, path, verbose):
+    inital_response = session.get(url)
+
+    uid = url.split('/')[3]
+    iid = url.split('/')[4].split('.')[0]
+
+    # We don't actually use this part because of what's explained in the comment below
+    # Keeping it in here in case poipiku decides to patch the password check
+    pas = 'yes' if "IllustItemExpandPass" in inital_response.text else ''
+
+    if not any(x in inital_response.text for x in skips):
+        # So poipiku has password-protected pictures sometimes right? Well
+        # turns out when running this payload against poipiku with pas set
+        # to -1, we skip the password check and get direct links to all
+        # protected pictures anyway, so happy downloading i guess...
+        initial_payload = create_post_detail_data(uid, iid, '-1')
+        response = session.post(url_illust_detail, data=initial_payload)
+        urls = get_image_urls(response)
+        for url in urls:
+            save_image(session, url, path, verbose)
+
+if __name__ == "__main__":
+    args = parse_args()
+
+    with create_session(args.url, args.cookie) as s:
+        r = s.get(args.url)
+        path = create_directory(s, args.url, args.directory)
+        sites = get_image_pages(s, args.url)
+    
+        for site in sites:
+            with create_session(site, args.cookie) as ns:
+                get_image_site(ns, site, path, args.verbose)
