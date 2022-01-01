@@ -80,30 +80,13 @@ def create_session(referer, cookie):
 
     return s
 
-def get_image_ids(response):
-    raw_json = json.loads(response.text)
-    raw_html = raw_json['html']
-
-    ids = []
-    for data in re.findall('"(.*?)"', raw_html):
-        if "showIllustDetail" in data:
-            data = data.split(',')[-1]
-            data = data[1:]
-            data = data[:-1]
-            ids.append(data)
-
-    return ids
-
 def get_image_urls(response):
     raw_json = json.loads(response.text)
     raw_html = raw_json['html']
 
-    urls = []
-    for url in re.findall('"(.*?)"', raw_html):
-        if "img-org.poipiku.com" in url:
-            url = 'https:' + url
-            urls.append(url)
-    
+    # Getting direct links to high quality images from image page
+    urls = ['https:' + url for url in re.findall('"(.*?)"', raw_html) if 'img-org.poipiku.com' in url]
+
     return urls
 
 def save_image(session, url, path, verbose):
@@ -179,14 +162,15 @@ def create_directory(session, url, directory):
         path = path + "/"
 
     soup = BeautifulSoup(r.text, 'html.parser')
+    id = str(soup.find('style')).split("url('//")[1].split('/header')[0].split('/')[-1].strip('0')
 
     # It's not me who messed up the classname, it's poipiku...
     try:
         username = soup.find(class_="UserInfoProgile")
-        path = path + str(username).split("@")[1].split("<")[0]
+        path = path + id + ' ' + str(username).split("@")[1].split("<")[0]
     except Exception:
         username = soup.find(class_="UserInfoUserName")
-        path = path + str(username).split('">')[2].split("</")[0]
+        path = path + id + ' ' + str(username).split('">')[2].split("</")[0]
         
     if not os.path.exists(path):
         os.makedirs(path)
