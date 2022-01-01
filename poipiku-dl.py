@@ -162,7 +162,13 @@ def create_directory(session, url, directory):
         path = path + "/"
 
     soup = BeautifulSoup(r.text, 'html.parser')
-    id = str(soup.find('style')).split("url('//")[1].split('/header')[0].split('/')[-1].strip('0')
+
+    # First method is preferred, fallback to URL if no background image is provided
+    id = ''
+    try:
+        id = str(soup.find('style')).split("url('//")[1].split('/header')[0].split('/')[-1].strip('0')
+    except Exception:
+        id = url.split('.com/')[1]
 
     # It's not me who messed up the classname, it's poipiku...
     try:
