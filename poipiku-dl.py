@@ -166,7 +166,7 @@ def create_directory(session, url, directory):
     # First method is preferred, fallback to URL if no background image is provided
     id = ''
     try:
-        id = str(soup.find('style')).split("url('//")[1].split('/')[2].strip('0')
+        id = str(soup.find('style')).split("url('//")[1].split('/')[2].lstrip('0')
     except Exception:
         id = url.split('.com/')[1]
 
