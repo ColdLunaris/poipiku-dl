@@ -10,7 +10,7 @@
 # speed, feel free to do so.
 # -------------------------------------------------------------------
 
-import requests, json, re, os, argparse
+import requests, json, re, os, argparse, asyncio, concurrent.futures
 from termcolor import colored
 from bs4 import BeautifulSoup
 
@@ -26,16 +26,14 @@ skips = [
     ]
 
 def parse_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-d", dest="directory", required=False,
-                        help="destination where all images will be saved")
-    parser.add_argument("-c", dest="cookie", required=True,
-                        help="path to authenticated cookie-file")
-    parser.add_argument("-u", dest="url", required=True,
-                        help="url for profile to be downloaded")
-    parser.add_argument("-v", dest="verbose", required=False, default=True,
-                        help="specifies verbosity to true or false. Default true")
-    args = parser.parse_args()
+    p = argparse.ArgumentParser()
+    p.add_argument("-d", dest="directory", required=False, help="destination where all images will be saved")
+    p.add_argument("-c", dest="cookie", required=True, help="path to authenticated cookie-file")
+    p.add_argument("-u", dest="url", required=True, help="url for profile to be downloaded")
+    p.add_argument("-v", dest="verbose", required=False, default=True, help="specifies verbosity to true or false. Default true")
+    p.add_argument("-t", dest="threads", required=False, help="amount of threads to spawn while downloading. Default is 1")
+    p.add_argument("-p", dest="password", required=False, help="password for protected pages. Default is yes or none depending on if the site asks for a password")
+    args = p.parse_args()
 
     return args
 
@@ -65,6 +63,15 @@ def create_post_detail_data(id, td, ad):
     }
     return payload
 
+def create_post_detail_data_with_pass(id, td, ad, pas):
+    payload = {
+        'ID': id,
+        'TD': td,
+        'AD': ad,
+        'PAS': pas
+    }
+    return payload
+
 # Poipiku expects very specific headers. This one seems to work fine
 def create_session(referer, cookie):
     s = requests.Session()
@@ -89,21 +96,24 @@ def get_image_urls(response):
 
     return urls
 
-def save_image(session, url, path, verbose):
+def save_image(session, url, path, v):
     name = url.rsplit('/', 1)[-1]
     path = path + '/' + name
-    response = session.get(url, stream=True)
 
-    if response.status_code == 200 and not os.path.exists(path):
+    if os.path.exists(path):
+        if v is True:
+            print(colored(path, 'green'))
+        return
+
+    r = session.get(url, stream=True)
+
+    if r.status_code == 200:
         # Write file in chunks. Slow, but works, so it's whatever...
         with open(path, 'wb') as f:
-            for chunk in response:
-                f.write(chunk)
-        if verbose is True:
+            for c in r:
+                f.write(c)
+        if v is True:
             print(colored(path, 'white'))
-    else:
-        if verbose is True:
-            print(colored(path, 'green'))
 
 # Cycle through all pages on profile page to get all urls
 def get_image_pages(session, url):
@@ -184,28 +194,27 @@ def create_directory(session, url, directory):
     # Need full directory for later in main
     return path
 
-def get_image_site(session, url, path, verbose):
+def get_image_site(session, url, path, verbose, pas):
     inital_response = session.get(url)
 
     uid = url.split('/')[3]
     iid = url.split('/')[4].split('.')[0]
 
-    # We don't actually use this part because of what's explained in the comment below
-    # Keeping it in here in case poipiku decides to patch the password check
-    pas = 'yes' if "IllustItemExpandPass" in inital_response.text else ''
+    if "IllustItemExpandPass" in inital_response.text:
+        pas = 'yes' if pas is None else pas
+        payload = create_post_detail_data_with_pass(uid, iid, '-1', pas)
+    else:
+        payload = create_post_detail_data(uid, iid, '-1')
 
     if not any(x in inital_response.text for x in skips):
-        # So poipiku has password-protected pictures sometimes right? Well
-        # turns out when running this payload against poipiku with pas set
-        # to -1, we skip the password check and get direct links to all
-        # protected pictures anyway, so happy downloading i guess...
-        initial_payload = create_post_detail_data(uid, iid, '-1')
-        response = session.post(url_illust_detail, data=initial_payload)
+        response = session.post(url_illust_detail, data=payload)
         urls = get_image_urls(response)
         for url in urls:
             save_image(session, url, path, verbose)
+    
+    session.close()
 
-if __name__ == "__main__":
+async def main():
     args = parse_args()
 
     with create_session(args.url, args.cookie) as s:
@@ -221,7 +230,24 @@ if __name__ == "__main__":
             pass
         
         sites = get_image_pages(s, args.url)
-    
-        for site in sites:
-            with create_session(site, args.cookie) as ns:
-                get_image_site(ns, site, path, args.verbose)
+        threads = 1 if args.threads is None else int(args.threads)
+
+        with concurrent.futures.ThreadPoolExecutor(threads) as executor:
+            loop = asyncio.get_event_loop()
+
+            tasks = [
+                loop.run_in_executor(
+                    executor,
+                    get_image_site,
+                    *(create_session(site, args.cookie), site, path, args.verbose, args.password)
+                )
+                for site in sites
+            ]
+            for response in await asyncio.gather(*tasks):
+                pass
+
+if __name__ == "__main__":
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(main())
+    loop.close()
