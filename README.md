@@ -17,6 +17,9 @@ If you still get an error for missing modules, that's when Google helps you out.
 | `-d PATH` | Specify output-directory. Current directory if not specified |
 | `-c PATH-TO-COOKIES-FILE` **REQUIRED** | Specify path to cookies with Poipiku-login |
 | `-u URL` **REQUIRED**| Specifies which link to look for images | 
+| `-t THREADS` | Specifies how many threads to use for downloads. Default is 1 | 
+| `-p PASSWORD` | Specifies password for protected pages. Default is 'yes' or empty if page doesn't require password | 
+
 
 `python3 ./poipiku-dl.py [-v VALUE] [-d PATH] [-c PATH-TO-COOKIES-FILE] -u 'enter URL here in quotes'`
 
@@ -25,4 +28,4 @@ Poipiku locks links for full-res images behind a login. You can supply already a
 
 ### Example:
 
-`python3 ./poipiku-dl.py -d '/mnt/tank/poipiku-archive/' -c '/home/lunaris/Desktop/poipiku-cookies.txt' -u 'https://poipiku.com/ID HERE/' -v True`
+`python3 ./poipiku-dl.py -d '/mnt/tank/poipiku-archive/' -c '/home/lunaris/Desktop/poipiku-cookies.txt' -u 'https://poipiku.com/ID HERE/' -v True -t 10 -p 'answer'`
