@@ -1,7 +1,5 @@
 # poipiku-dl
 
-This tool is currently not working. The Poipiku-team has implemented captchas from Cloudflare that would require a paid service like 2captcha to bypass. Unsure if this will ever be fixed in the future, so this project might be dead...
-
 A tool written in Python to download images from poipiku. Tested on Linux. 
 
 ## Requirements
